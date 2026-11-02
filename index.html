@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0a0a14">
+<title>Blockout Mobile</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;background:#0a0a14;color:#e8e8f0;overflow:hidden;height:100vh;display:flex;flex-direction:column;touch-action:none}
@@ -19,7 +20,7 @@ button{padding:12px 4px;border:0;border-radius:8px;background:#1e1e3a;color:#fff
 button:active{background:#3a3a6a}
 #overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(10,10,20,.92);gap:12px;padding:20px;text-align:center}
 #overlay h1{font-size:28px}
-#overlay p{max-width:320px;opacity:.85}
+#overlay p{max-width:340px;opacity:.85}
 #overlay button{padding:12px 24px;border-radius:10px;background:#5b5bff}
 .hidden{display:none!important}
 </style>
@@ -35,56 +36,59 @@ button:active{background:#3a3a6a}
   <canvas id="c"></canvas>
   <div id="overlay">
     <h1>Blockout Mobile</h1>
-    <p>3D tetris. 1000 levels, increasing speed. Unlimited lives, no ads. Clear layers to score. Rotate on 3 axes.</p>
+    <p>3D Blockout-style: pieces fall into a 3D pit, rotate on 3 axes, clear full layers. 1000 levels, unlimited lives, no ads.</p>
     <button id="startBtn">Start</button>
-    <p style="font-size:12px;opacity:.6">Controls: buttons below or swipe on canvas</p>
+    <p style="font-size:12px;opacity:.6">Swipe to move/rotate, buttons below</p>
   </div>
 </div>
 <div id="controls">
-  <button data-a="left">◀</button>
+  <button data-a="left">Left</button>
   <button data-a="rotX">Rot X</button>
-  <button data-a="down">▼</button>
+  <button data-a="down">Down</button>
   <button data-a="rotY">Rot Y</button>
-  <button data-a="right">▶</button>
+  <button data-a="right">Right</button>
   <button data-a="rotZ">Rot Z</button>
   <button data-a="drop">Drop</button>
-  <button data-a="hold">Hold</button>
+  <button data-a="back">Back</button>
+  <button data-a="forward">Fwd</button>
   <button data-a="pause">Pause</button>
-  <button data-a="next">Next</button>
 </div>
 <script>
-const W=6,H=12,D=6;
-let grid,cur,next,hold,canHold,score,lines,level,best,paused,over,running,dropTimer,lastTime;
-const pieces=[
-  [[[1,1],[1,1]],[[1,1],[1,1]]],
-  [[[1,1,1],[1,0,0]]],
-  [[[1,1,1],[0,0,1]]],
-  [[[1,1,0],[0,1,1]]],
-  [[[0,1,1],[1,1,0]]],
-  [[[1,1,1,1]]],
-  [[[1,1,1],[1,1,1],[1,1,1]]]
+const W=5,D=5,H=12;
+let grid,cur,next,score,lines,level,best,paused,over,running,dropTimer,lastTime;
+const polys=[
+  [[0,0,0],[1,0,0],[0,1,0],[0,0,1]],
+  [[0,0,0],[1,0,0],[0,1,0],[1,1,0]],
+  [[0,0,0],[1,0,0],[2,0,0],[1,1,0]],
+  [[0,0,0],[1,0,0],[0,1,0]],
+  [[0,0,0],[1,0,0]],
+  [[0,0,0]],
+  [[0,0,0],[1,0,0],[0,1,0],[1,1,1]]
 ];
 function newGrid(){return Array.from({length:H},()=>Array.from({length:D},()=>Array(W).fill(0)));}
-function rndPiece(){const p=pieces[Math.floor(Math.random()*pieces.length)];return {cells:p.map(l=>l.map(r=>r.slice())),x:Math.floor(W/2)-1,z:Math.floor(D/2)-1,y:0};}
-function rotate(piece,axis){const c=piece.cells;let out;
- if(axis==='x') out=c.map(layer=>layer.map(row=>row.slice()).reverse());
- else if(axis==='y') out=c[0].map((_,i)=>c.map(l=>l[i]).reverse());
- else out=c.map(layer=>layer.map((row,i)=>row.map((_,j)=>c[c.length-1-i][j])));
- piece.cells=out;return piece;}
+function rndPiece(){const p=polys[Math.floor(Math.random()*polys.length)];return {cells:p.map(c=>c.slice()),x:2,z:2,y:0};}
+function rotate(piece,axis){
+ const c=piece.cells;
+ piece.cells=c.map(v=>{
+   let [x,y,z]=v;
+   if(axis==='x'){const t=y;y=z;z=-t;}
+   else if(axis==='y'){const t=x;x=z;z=-t;}
+   else{const t=x;x=y;y=-t;}
+   return [x,y,z];
+ });
+ let mx=Math.min(...piece.cells.map(v=>v[0])),my=Math.min(...piece.cells.map(v=>v[1])),mz=Math.min(...piece.cells.map(v=>v[2]));
+ piece.cells=piece.cells.map(v=>[v[0]-mx,v[1]-my,v[2]-mz]);
+}
 function collides(p,dx=0,dy=0,dz=0){
- for(let y=0;y<p.cells.length;y++)for(let z=0;z<p.cells[y].length;z++)for(let x=0;x<p.cells[y][z].length;x++){
-   if(!p.cells[y][z][x])continue;
+ for(const [x,y,z] of p.cells){
    const nx=p.x+x+dx,ny=p.y+y+dy,nz=p.z+z+dz;
    if(nx<0||nx>=W||nz<0||nz>=D||ny>=H) return true;
    if(ny>=0 && grid[ny][nz][nx]) return true;
  }return false;}
 function lock(){
- for(let y=0;y<cur.cells.length;y++)for(let z=0;z<cur.cells[y].length;z++)for(let x=0;x<cur.cells[y][z].length;x++){
-   if(cur.cells[y][z][x]){
-     const ny=cur.y+y,nz=cur.z+z,nx=cur.x+x;
-     if(ny>=0) grid[ny][nz][nx]=1;
-   }}
- clearLayers(); cur=next; next=rndPiece(); canHold=true; if(collides(cur)){over=true;running=false;showOverlay('Game Over','Score '+score);}
+ for(const [x,y,z] of cur.cells){const ny=cur.y+y,nz=cur.z+z,nx=cur.x+x;if(ny>=0)grid[ny][nz][nx]=1;}
+ clearLayers(); cur=next; next=rndPiece();
+ if(collides(cur)){over=true;running=false;showOverlay('Game Over','Score '+score);}
 }
 function clearLayers(){
  let cleared=0;
@@ -95,67 +99,63 @@ function clearLayers(){
  }
  if(cleared){lines+=cleared;score+=cleared*100*level;document.getElementById('lines').textContent=lines;document.getElementById('score').textContent=score;
    if(score>best){best=score;localStorage.setItem('blockout_best',best);document.getElementById('best').textContent=best;}
-   const newLvl=Math.floor(lines/10)+1; if(newLvl>level){level=Math.min(newLvl,1000);document.getElementById('lvl').textContent=level;}
+   const newLvl=Math.floor(lines/8)+1; if(newLvl>level){level=Math.min(newLvl,1000);document.getElementById('lvl').textContent=level;}
  }
 }
 function update(dt){
  if(paused||over||!running)return;
  dropTimer-=dt;
- if(dropTimer<=0){if(!collides(cur,0,1,0))cur.y++;else lock();dropTimer=Math.max(120,600-level*0.5);}
+ if(dropTimer<=0){if(!collides(cur,0,1,0))cur.y++;else lock();dropTimer=Math.max(100,500-level*0.4);}
 }
+function iso(x,y,z){return {sx:(x-z)*0.5, sy:(x+z)*0.25 - y*0.5};}
 function draw(){
  const cv=document.getElementById('c'),ctx=cv.getContext('2d');
  cv.width=cv.clientWidth;cv.height=cv.clientHeight;
  ctx.fillStyle='#0a0a14';ctx.fillRect(0,0,cv.width,cv.height);
- const cell=Math.min(cv.width/(W+2),cv.height/(H+2));
- const ox=(cv.width-cell*W)/2,oy=(cv.height-cell*H)/2;
- // draw grid blocks
- for(let y=0;y<H;y++)for(let z=0;z<D;z++)for(let x=0;x<W;x++){
-   if(grid[y][z][x]){
-     ctx.fillStyle='#5b5bff';ctx.fillRect(ox+x*cell,oy+(H-1-y)*cell,cell-1,cell-1);
-   }
+ const scale=Math.min(cv.width/(W+D+2),cv.height/(H+4))*1.1;
+ const ox=cv.width/2,oy=cv.height*0.88;
+ const blocks=[];
+ for(let y=0;y<H;y++)for(let z=0;z<D;z++)for(let x=0;x<W;x++)if(grid[y][z][x])blocks.push({x,y,z,c:'#4a4aff'});
+ for(const [x,y,z] of cur.cells){const ny=cur.y+y;if(ny>=0)blocks.push({x:cur.x+x,y:ny,z:cur.z+z,c:'#ff4a88'});}
+ blocks.sort((a,b)=>(a.x+a.z-a.y)-(b.x+b.z-b.y));
+ for(const b of blocks){
+   const p=iso(b.x,b.y,b.z);
+   const s=scale*0.85;
+   ctx.fillStyle=b.c;
+   ctx.fillRect(ox+p.sx*scale-s/2,oy-p.sy*scale-s/2,s,s);
+   ctx.strokeStyle='rgba(255,255,255,.2)';ctx.strokeRect(ox+p.sx*scale-s/2,oy-p.sy*scale-s/2,s,s);
  }
- // draw current
- ctx.fillStyle='#ff5b8a';
- for(let y=0;y<cur.cells.length;y++)for(let z=0;z<cur.cells[y].length;z++)for(let x=0;x<cur.cells[y][z].length;x++){
-   if(cur.cells[y][z][x]){
-     const ny=cur.y+y; if(ny<0)continue;
-     ctx.fillRect(ox+(cur.x+x)*cell,oy+(H-1-ny)*cell,cell-1,cell-1);
-   }
- }
- // HUD overlay text
- ctx.fillStyle='#fff';ctx.font='12px system-ui';ctx.fillText('Next:',4,16);
+ ctx.fillStyle='#fff';ctx.font='12px system-ui';ctx.fillText('Level '+level,8,16);
 }
 function loop(ts){if(!lastTime)lastTime=ts;const dt=ts-lastTime;lastTime=ts;update(dt);draw();requestAnimationFrame(loop);}
-function showOverlay(title,sub){const o=document.getElementById('overlay');o.classList.remove('hidden');o.querySelector('h1').textContent=title;o.querySelector('p').textContent=sub;}
+function showOverlay(t,s){const o=document.getElementById('overlay');o.classList.remove('hidden');o.querySelector('h1').textContent=t;o.querySelector('p').textContent=s;}
 function hideOverlay(){document.getElementById('overlay').classList.add('hidden');}
-function start(){grid=newGrid();cur=rndPiece();next=rndPiece();hold=null;canHold=true;score=0;lines=0;level=1;paused=false;over=false;running=true;dropTimer=600;lastTime=0;best=parseInt(localStorage.getItem('blockout_best')||'0',10);document.getElementById('best').textContent=best;document.getElementById('score').textContent=0;document.getElementById('lines').textContent=0;document.getElementById('lvl').textContent=1;hideOverlay();requestAnimationFrame(loop);}
+function start(){grid=newGrid();cur=rndPiece();next=rndPiece();score=0;lines=0;level=1;paused=false;over=false;running=true;dropTimer=500;lastTime=0;best=parseInt(localStorage.getItem('blockout_best')||'0',10);document.getElementById('best').textContent=best;document.getElementById('score').textContent=0;document.getElementById('lines').textContent=0;document.getElementById('lvl').textContent=1;hideOverlay();requestAnimationFrame(loop);}
 function act(a){
  if(!running)return;
  if(a==='left'){if(!collides(cur,-1,0,0))cur.x--;}
  else if(a==='right'){if(!collides(cur,1,0,0))cur.x++;}
  else if(a==='down'){if(!collides(cur,0,1,0))cur.y++;else lock();}
  else if(a==='drop'){while(!collides(cur,0,1,0))cur.y++;lock();}
- else if(a==='rotX'){rotate(cur,'x');if(collides(cur))rotate(cur,'x');rotate(cur,'x');rotate(cur,'x');}
- else if(a==='rotY'){rotate(cur,'y');if(collides(cur))rotate(cur,'y');rotate(cur,'y');rotate(cur,'y');}
- else if(a==='rotZ'){rotate(cur,'z');if(collides(cur))rotate(cur,'z');rotate(cur,'z');rotate(cur,'z');}
- else if(a==='hold'){if(canHold){if(!hold){hold=cur;cur=next;next=rndPiece();}else{const t=cur;cur=hold;hold=t;}canHold=false;}}
+ else if(a==='back'){if(!collides(cur,0,0,-1))cur.z--;}
+ else if(a==='forward'){if(!collides(cur,0,0,1))cur.z++;}
+ else if(a==='rotX'){rotate(cur,'x');if(collides(cur)){rotate(cur,'x');rotate(cur,'x');rotate(cur,'x');}}
+ else if(a==='rotY'){rotate(cur,'y');if(collides(cur)){rotate(cur,'y');rotate(cur,'y');rotate(cur,'y');}}
+ else if(a==='rotZ'){rotate(cur,'z');if(collides(cur)){rotate(cur,'z');rotate(cur,'z');rotate(cur,'z');}}
  else if(a==='pause'){paused=!paused;}
- else if(a==='next'){/*noop*/}
 }
 document.getElementById('startBtn').addEventListener('click',start);
 document.querySelectorAll('#controls button').forEach(b=>b.addEventListener('click',()=>act(b.dataset.a)));
-// swipe
-let sx,sy,st;
+let sx,sy;
 const cv=document.getElementById('c');
-cv.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;st=Date.now();},{passive:true});
+cv.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;},{passive:true});
 cv.addEventListener('touchend',e=>{
  const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;
  if(Math.abs(dx)>Math.abs(dy)){if(dx>30)act('right');else if(dx<-30)act('left');}
  else{if(dy>30)act('down');else if(dy<-30)act('drop');}
 },{passive:true});
 window.addEventListener('keydown',e=>{
- const m={ArrowLeft:'left',ArrowRight:'right',ArrowDown:'down',ArrowUp:'drop',KeyX:'rotX',KeyY:'rotY',KeyZ:'rotZ',Space:'drop',KeyP:'pause',KeyC:'hold'};
+ const m={ArrowLeft:'left',ArrowRight:'right',ArrowDown:'down',ArrowUp:'drop',KeyX:'rotX',KeyY:'rotY',KeyZ:'rotZ',Space:'drop',KeyP:'pause',KeyA:'back',KeyD:'forward'};
  if(m[e.code])act(m[e.code]);
 });
 </script>
