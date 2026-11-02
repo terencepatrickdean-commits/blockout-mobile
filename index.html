@@ -112,19 +112,25 @@ function draw(){
  const cv=document.getElementById('c'),ctx=cv.getContext('2d');
  cv.width=cv.clientWidth;cv.height=cv.clientHeight;
  ctx.fillStyle='#0a0a14';ctx.fillRect(0,0,cv.width,cv.height);
- const scale=Math.min(cv.width/(W+D+2),cv.height/(H+4))*1.1;
- const ox=cv.width/2,oy=cv.height*0.88;
- const blocks=[];
- for(let y=0;y<H;y++)for(let z=0;z<D;z++)for(let x=0;x<W;x++)if(grid[y][z][x])blocks.push({x,y,z,c:'#4a4aff'});
- for(const [x,y,z] of cur.cells){const ny=cur.y+y;if(ny>=0)blocks.push({x:cur.x+x,y:ny,z:cur.z+z,c:'#ff4a88'});}
- blocks.sort((a,b)=>(a.x+a.z-a.y)-(b.x+b.z-b.y));
- for(const b of blocks){
-   const p=iso(b.x,b.y,b.z);
-   const s=scale*0.85;
-   ctx.fillStyle=b.c;
-   ctx.fillRect(ox+p.sx*scale-s/2,oy-p.sy*scale-s/2,s,s);
-   ctx.strokeStyle='rgba(255,255,255,.2)';ctx.strokeRect(ox+p.sx*scale-s/2,oy-p.sy*scale-s/2,s,s);
+ const cell=Math.min(cv.width/(W+2),cv.height/(D+2));
+ const ox=(cv.width-cell*W)/2,oy=(cv.height-cell*D)/2;
+ // draw pit cells with height shading
+ for(let z=0;z<D;z++)for(let x=0;x<W;x++){
+   let h=0;for(let y=0;y<H;y++)if(grid[y][z][x])h=y+1;
+   const shade=20+h*12;
+   ctx.fillStyle='rgb('+shade+','+shade+','+(shade+40)+')';
+   ctx.fillRect(ox+x*cell,oy+z*cell,cell-1,cell-1);
  }
+ // draw current piece
+ ctx.fillStyle='#ff4a88';
+ for(const [x,y,z] of cur.cells){
+   const ny=cur.y+y,nz=cur.z+z,nx=cur.x+x;
+   if(ny<0||ny>=H)continue;
+   ctx.fillRect(ox+nx*cell,oy+nz*cell,cell-1,cell-1);
+ }
+ ctx.strokeStyle='#2a2a4a';ctx.lineWidth=1;
+ for(let z=0;z<=D;z++){ctx.beginPath();ctx.moveTo(ox,oy+z*cell);ctx.lineTo(ox+W*cell,oy+z*cell);ctx.stroke();}
+ for(let x=0;x<=W;x++){ctx.beginPath();ctx.moveTo(ox+x*cell,oy);ctx.lineTo(ox+x*cell,oy+D*cell);ctx.stroke();}
  ctx.fillStyle='#fff';ctx.font='12px system-ui';ctx.fillText('Level '+level,8,16);
 }
 function loop(ts){if(!lastTime)lastTime=ts;const dt=ts-lastTime;lastTime=ts;update(dt);draw();requestAnimationFrame(loop);}
