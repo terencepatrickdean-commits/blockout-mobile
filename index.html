@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0a14">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0a0a14;color:#e8e8f0;overflow:hidden;height:100vh;display:flex;flex-direction:column;touch-action:none}
+#hud{display:flex;justify-content:space-between;padding:8px 12px;font-size:14px;background:#12121f}
+#hud span{margin:0 6px}
+#canvasWrap{flex:1;position:relative;overflow:hidden}
+canvas{display:block;margin:0 auto}
+#controls{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:8px;background:#12121f}
+button{padding:12px 4px;border:0;border-radius:8px;background:#1e1e3a;color:#fff;font-size:12px;font-weight:600}
+button:active{background:#3a3a6a}
+#overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(10,10,20,.92);gap:12px;padding:20px;text-align:center}
+#overlay h1{font-size:28px}
+#overlay p{max-width:320px;opacity:.85}
+#overlay button{padding:12px 24px;border-radius:10px;background:#5b5bff}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="hud">
+  <span>Level <b id="lvl">1</b></span>
+  <span>Score <b id="score">0</b></span>
+  <span>Best <b id="best">0</b></span>
+  <span>Lines <b id="lines">0</b></span>
+</div>
+<div id="canvasWrap">
+  <canvas id="c"></canvas>
+  <div id="overlay">
+    <h1>Blockout Mobile</h1>
+    <p>3D tetris. 1000 levels, increasing speed. Unlimited lives, no ads. Clear layers to score. Rotate on 3 axes.</p>
+    <button id="startBtn">Start</button>
+    <p style="font-size:12px;opacity:.6">Controls: buttons below or swipe on canvas</p>
+  </div>
+</div>
+<div id="controls">
+  <button data-a="left">◀</button>
+  <button data-a="rotX">Rot X</button>
+  <button data-a="down">▼</button>
+  <button data-a="rotY">Rot Y</button>
+  <button data-a="right">▶</button>
+  <button data-a="rotZ">Rot Z</button>
+  <button data-a="drop">Drop</button>
+  <button data-a="hold">Hold</button>
+  <button data-a="pause">Pause</button>
+  <button data-a="next">Next</button>
+</div>
+<script>
+const W=6,H=12,D=6;
+let grid,cur,next,hold,canHold,score,lines,level,best,paused,over,running,dropTimer,lastTime;
+const pieces=[
+  [[[1,1],[1,1]],[[1,1],[1,1]]],
+  [[[1,1,1],[1,0,0]]],
+  [[[1,1,1],[0,0,1]]],
+  [[[1,1,0],[0,1,1]]],
+  [[[0,1,1],[1,1,0]]],
+  [[[1,1,1,1]]],
+  [[[1,1,1],[1,1,1],[1,1,1]]]
+];
+function newGrid(){return Array.from({length:H},()=>Array.from({length:D},()=>Array(W).fill(0)));}
+function rndPiece(){const p=pieces[Math.floor(Math.random()*pieces.length)];return {cells:p.map(l=>l.map(r=>r.slice())),x:Math.floor(W/2)-1,z:Math.floor(D/2)-1,y:0};}
+function rotate(piece,axis){const c=piece.cells;let out;
+ if(axis==='x') out=c.map(layer=>layer.map(row=>row.slice()).reverse());
+ else if(axis==='y') out=c[0].map((_,i)=>c.map(l=>l[i]).reverse());
+ else out=c.map(layer=>layer.map((row,i)=>row.map((_,j)=>c[c.length-1-i][j])));
+ piece.cells=out;return piece;}
+function collides(p,dx=0,dy=0,dz=0){
+ for(let y=0;y<p.cells.length;y++)for(let z=0;z<p.cells[y].length;z++)for(let x=0;x<p.cells[y][z].length;x++){
+   if(!p.cells[y][z][x])continue;
+   const nx=p.x+x+dx,ny=p.y+y+dy,nz=p.z+z+dz;
+   if(nx<0||nx>=W||nz<0||nz>=D||ny>=H) return true;
+   if(ny>=0 && grid[ny][nz][nx]) return true;
+ }return false;}
+function lock(){
+ for(let y=0;y<cur.cells.length;y++)for(let z=0;z<cur.cells[y].length;z++)for(let x=0;x<cur.cells[y][z].length;x++){
+   if(cur.cells[y][z][x]){
+     const ny=cur.y+y,nz=cur.z+z,nx=cur.x+x;
+     if(ny>=0) grid[ny][nz][nx]=1;
+   }}
+ clearLayers(); cur=next; next=rndPiece(); canHold=true; if(collides(cur)){over=true;running=false;showOverlay('Game Over','Score '+score);}
+}
+function clearLayers(){
+ let cleared=0;
+ for(let y=H-1;y>=0;y--){
+   let full=true;
+   for(let z=0;z<D && full;z++)for(let x=0;x<W;x++)if(!grid[y][z][x]){full=false;break;}
+   if(full){grid.splice(y,1);grid.unshift(Array.from({length:D},()=>Array(W).fill(0)));cleared++;y++;}
+ }
+ if(cleared){lines+=cleared;score+=cleared*100*level;document.getElementById('lines').textContent=lines;document.getElementById('score').textContent=score;
+   if(score>best){best=score;localStorage.setItem('blockout_best',best);document.getElementById('best').textContent=best;}
+   const newLvl=Math.floor(lines/10)+1; if(newLvl>level){level=Math.min(newLvl,1000);document.getElementById('lvl').textContent=level;}
+ }
+}
+function update(dt){
+ if(paused||over||!running)return;
+ dropTimer-=dt;
+ if(dropTimer<=0){if(!collides(cur,0,1,0))cur.y++;else lock();dropTimer=Math.max(120,600-level*0.5);}
+}
+function draw(){
+ const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+ cv.width=cv.clientWidth;cv.height=cv.clientHeight;
+ ctx.fillStyle='#0a0a14';ctx.fillRect(0,0,cv.width,cv.height);
+ const cell=Math.min(cv.width/(W+2),cv.height/(H+2));
+ const ox=(cv.width-cell*W)/2,oy=(cv.height-cell*H)/2;
+ // draw grid blocks
+ for(let y=0;y<H;y++)for(let z=0;z<D;z++)for(let x=0;x<W;x++){
+   if(grid[y][z][x]){
+     ctx.fillStyle='#5b5bff';ctx.fillRect(ox+x*cell,oy+(H-1-y)*cell,cell-1,cell-1);
+   }
+ }
+ // draw current
+ ctx.fillStyle='#ff5b8a';
+ for(let y=0;y<cur.cells.length;y++)for(let z=0;z<cur.cells[y].length;z++)for(let x=0;x<cur.cells[y][z].length;x++){
+   if(cur.cells[y][z][x]){
+     const ny=cur.y+y; if(ny<0)continue;
+     ctx.fillRect(ox+(cur.x+x)*cell,oy+(H-1-ny)*cell,cell-1,cell-1);
+   }
+ }
+ // HUD overlay text
+ ctx.fillStyle='#fff';ctx.font='12px system-ui';ctx.fillText('Next:',4,16);
+}
+function loop(ts){if(!lastTime)lastTime=ts;const dt=ts-lastTime;lastTime=ts;update(dt);draw();requestAnimationFrame(loop);}
+function showOverlay(title,sub){const o=document.getElementById('overlay');o.classList.remove('hidden');o.querySelector('h1').textContent=title;o.querySelector('p').textContent=sub;}
+function hideOverlay(){document.getElementById('overlay').classList.add('hidden');}
+function start(){grid=newGrid();cur=rndPiece();next=rndPiece();hold=null;canHold=true;score=0;lines=0;level=1;paused=false;over=false;running=true;dropTimer=600;lastTime=0;best=parseInt(localStorage.getItem('blockout_best')||'0',10);document.getElementById('best').textContent=best;document.getElementById('score').textContent=0;document.getElementById('lines').textContent=0;document.getElementById('lvl').textContent=1;hideOverlay();requestAnimationFrame(loop);}
+function act(a){
+ if(!running)return;
+ if(a==='left'){if(!collides(cur,-1,0,0))cur.x--;}
+ else if(a==='right'){if(!collides(cur,1,0,0))cur.x++;}
+ else if(a==='down'){if(!collides(cur,0,1,0))cur.y++;else lock();}
+ else if(a==='drop'){while(!collides(cur,0,1,0))cur.y++;lock();}
+ else if(a==='rotX'){rotate(cur,'x');if(collides(cur))rotate(cur,'x');rotate(cur,'x');rotate(cur,'x');}
+ else if(a==='rotY'){rotate(cur,'y');if(collides(cur))rotate(cur,'y');rotate(cur,'y');rotate(cur,'y');}
+ else if(a==='rotZ'){rotate(cur,'z');if(collides(cur))rotate(cur,'z');rotate(cur,'z');rotate(cur,'z');}
+ else if(a==='hold'){if(canHold){if(!hold){hold=cur;cur=next;next=rndPiece();}else{const t=cur;cur=hold;hold=t;}canHold=false;}}
+ else if(a==='pause'){paused=!paused;}
+ else if(a==='next'){/*noop*/}
+}
+document.getElementById('startBtn').addEventListener('click',start);
+document.querySelectorAll('#controls button').forEach(b=>b.addEventListener('click',()=>act(b.dataset.a)));
+// swipe
+let sx,sy,st;
+const cv=document.getElementById('c');
+cv.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;st=Date.now();},{passive:true});
+cv.addEventListener('touchend',e=>{
+ const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;
+ if(Math.abs(dx)>Math.abs(dy)){if(dx>30)act('right');else if(dx<-30)act('left');}
+ else{if(dy>30)act('down');else if(dy<-30)act('drop');}
+},{passive:true});
+window.addEventListener('keydown',e=>{
+ const m={ArrowLeft:'left',ArrowRight:'right',ArrowDown:'down',ArrowUp:'drop',KeyX:'rotX',KeyY:'rotY',KeyZ:'rotZ',Space:'drop',KeyP:'pause',KeyC:'hold'};
+ if(m[e.code])act(m[e.code]);
+});
+</script>
+</body>
+</html>
